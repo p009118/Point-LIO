@@ -356,6 +356,11 @@ int main(int argc, char** argv)
 
     kf_input.init_dyn_share_modified_2h(get_f_input, df_dx_input, h_model_input);
     kf_output.init_dyn_share_modified_3h(get_f_output, df_dx_output, h_model_output, h_model_IMU_output);
+    // degeneracy-aware update (paper feature A): forward the yaml settings to both estimators
+    kf_input.degen_en_ = degeneracy_en;   kf_output.degen_en_ = degeneracy_en;
+    kf_input.degen_ratio_thr_ = degeneracy_ratio_thr; kf_output.degen_ratio_thr_ = degeneracy_ratio_thr;
+    kf_input.degen_decay_ = degeneracy_decay; kf_output.degen_decay_ = degeneracy_decay;
+    kf_input.degen_warmup_ = degeneracy_warmup; kf_output.degen_warmup_ = degeneracy_warmup;
     Eigen::Matrix<double, 24, 24> P_init; // = MD(18, 18)::Identity() * 0.1;
     reset_cov(P_init);
     kf_input.change_P(P_init);

@@ -206,6 +206,18 @@ public:
 			// it modulates each point's influence. w_j == 1 reproduces the scalar-noise behaviour exactly.
 			Matrix<scalar_type, Eigen::Dynamic, 1> w_vec = dyn_share.R_vec;
 			bool use_w = (w_vec.size() == dof_Measurement);
+
+			// Accumulate the LiDAR pose information matrix (6x6) across the per-point updates so that
+			// degeneracy can be assessed over a window rather than from a single rank-deficient update.
+			if (degen_en_)
+			{
+				Matrix<scalar_type, Eigen::Dynamic, 6> Hp = h_x.block(0, 0, dof_Measurement, 6);
+				Matrix<scalar_type, 6, 6> Mp;
+				if (use_w) Mp = Hp.transpose() * w_vec.asDiagonal() * Hp;
+				else       Mp = Hp.transpose() * Hp;
+				degen_info_ = degen_decay_ * degen_info_ + Mp;
+				degen_count_++;
+			}
 			// dof_Measurement_noise = dyn_share.R.rows();
 			// vectorized_state dx, dx_new;
 			// x_.boxminus(dx, x_propagated);
@@ -245,7 +257,33 @@ public:
 				P_inv = P_inv.inverse();
 				K_ = P_inv.template block<n, 12>(0, 0) * HT_Rinv;
 			}
-			Matrix<scalar_type, n, 1> dx_ = K_ * z; // - h) + (K_x - Matrix<scalar_type, n, n>::Identity()) * dx_new; 
+
+			// Degeneracy-aware gain suppression: project the pose rows of the Kalman gain onto the
+			// well-constrained eigen-subspace of the accumulated information matrix, so degenerate
+			// directions keep the kinematic/IMU prediction instead of being driven by weak LiDAR
+			// constraints. Both mean and covariance updates use the projected gain => consistent.
+			if (degen_en_ && degen_count_ > degen_warmup_)
+			{
+				Eigen::SelfAdjointEigenSolver<Matrix<scalar_type, 6, 6> > es(degen_info_);
+				const Matrix<scalar_type, 6, 1> eval = es.eigenvalues();   // ascending order
+				const Matrix<scalar_type, 6, 6> evec = es.eigenvectors();
+				scalar_type lmax = eval(5);
+				if (lmax > scalar_type(1e-9))
+				{
+					Matrix<scalar_type, 6, 6> Pf = Matrix<scalar_type, 6, 6>::Zero();
+					for (int e = 0; e < 6; e++)
+					{
+						if (eval(e) / lmax >= degen_ratio_thr_)
+						{
+							Pf += evec.col(e) * evec.col(e).transpose();
+						}
+					}
+					Matrix<scalar_type, 6, Eigen::Dynamic> K_pose = Pf * K_.template topRows<6>();
+					K_.template topRows<6>() = K_pose;
+				}
+			}
+
+			Matrix<scalar_type, n, 1> dx_ = K_ * z; // - h) + (K_x - Matrix<scalar_type, n, n>::Identity()) * dx_new;
 			// state x_before = x_;
 
 			x_.boxplus(dx_);
@@ -324,6 +362,17 @@ public:
 	}
 	cov P_;
 	state x_;
+	// --- degeneracy-aware update (paper feature A) ---
+	// Set from yaml after construction. When degen_en_ is true, a decaying accumulation of the
+	// LiDAR pose information matrix (H^T R^{-1} H over the 6-DoF pose block) is maintained; its
+	// weak eigen-directions are treated as degenerate and the Kalman gain along them is removed,
+	// so those directions stay on the kinematic/IMU prediction. degen_en_ == false => no effect.
+	bool degen_en_ = false;
+	double degen_ratio_thr_ = 0.02;   // eigenvalue/lambda_max below this => degenerate direction
+	double degen_decay_ = 0.95;       // exponential decay of the accumulated information matrix
+	int degen_warmup_ = 50;           // updates to accumulate before suppression is allowed
+	int degen_count_ = 0;
+	Eigen::Matrix<scalar_type, 6, 6> degen_info_ = Eigen::Matrix<scalar_type, 6, 6>::Zero();
 private:
 	measurement m_;
 	spMt l_;
