@@ -1,6 +1,6 @@
 common:
-    lid_topic:  "/os_cloud_node/points"
-    imu_topic:  "/os_cloud_node/imu"   # Ouster built-in IMU (extrinsic to lidar ~identity). Switch to /alphasense/imu if you prefer the Bosch IMU (then set the extrinsic below).
+    lid_topic:  "/hesai/pandar"
+    imu_topic:  "/alphasense/imu"      # Hilti 2022 IMU (Bosch BMI085, ~400 Hz)
     con_frame: false # true: if you need to combine several LiDAR frames into one
     con_frame_num: 1 # the number of frames combined
     cut_frame: false # true: if you need to cut one LiDAR frame into several subframes
@@ -8,19 +8,19 @@ common:
     time_diff_lidar_to_imu: 0.0 # Time offset between LiDAR and IMU calibrated by other algorithms, e.g., LI-Init (find in Readme)
 
 preprocess:
-    lidar_type: 3 # Ouster
-    scan_line: 64 # OS0-64
-    timestamp_unit: 3           # Ouster 't' field is nanoseconds
-    blind: 1.0                  # indoor / construction: keep close returns (smaller than the 4.0 used outdoors)
+    lidar_type: 4               # 4 = HESAIxt32 (Hilti 2022 Hesai PandarXT-32)
+    scan_line: 32
+    timestamp_unit: 0           # Hesai 'timestamp' field is absolute SECONDS
+    blind: 1.0                  # indoor / corridor: keep close returns
 
 mapping:
     imu_en: true
-    extrinsic_est_en: false # Ouster lidar<->built-in IMU extrinsic is known; keep fixed
-    imu_time_inte: 0.01 # = 1 / IMU frequency (Ouster built-in IMU ~100 Hz; use 0.005 if you switch to the 200 Hz Alphasense)
+    extrinsic_est_en: true  # start by estimating LiDAR<->IMU online; fix it from the Hilti 2022 calibration once known (recommended for the degenerate corridor)
+    imu_time_inte: 0.0025 # = 1 / IMU frequency (~400 Hz Alphasense)
     lidar_time_inte: 0.1
     satu_acc: 30.0
     satu_gyro: 35
-    acc_norm: 9.81 # Ouster/Alphasense accelerations are in m/s^2
+    acc_norm: 9.81 # Alphasense accelerations are in m/s^2
     lidar_meas_cov: 0.01 # 0.001
     point_cov_en: false      # true: enable per-point anisotropic measurement weighting (paper feature B). false reproduces the baseline exactly.
     point_cov_range_k: 0.001 # weight inflation per range^2 (m^-2)
@@ -41,14 +41,13 @@ mapping:
     acc_cov_input: 0.1 # for IMU as input model
     plane_thr: 0.1 # 0.05, the threshold for plane criteria, the smaller, the flatter a plane
     match_s: 81
-    ivox_grid_resolution: 0.5  # indoor: finer map than the 2.0 used for fast flight
+    ivox_grid_resolution: 0.5  # indoor: finer map
     gravity: [0.0, 0.0, -9.810]
     gravity_init: [0.0, 0.0, -9.810]
-    extrinsic_T: [0.0, 0.0, 0.0]  # Ouster built-in IMU: ~zero offset. If using /alphasense/imu, fill the Hilti calibration here.
+    extrinsic_T: [0.0, 0.0, 0.0]  # fill the Hilti 2022 Hesai<->Alphasense translation when you have the calibration
     extrinsic_R: [ 1, 0, 0,
                    0, 1, 0,
                    0, 0, 1 ]
-
 odometry:
     publish_odometry_without_downsample: false
 
