@@ -238,6 +238,14 @@ void h_model_input(state_input &s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_R,
 			m++;
 		}
 	}
+	if (point_cov_en && effect_num_k > 0)
+	{
+		// normalize the per-point weights to unit mean within this update group, so the scheme
+		// only redistributes relative trust among points and preserves the (well-tuned) global
+		// measurement-noise budget laser_point_cov => nominal accuracy is not disturbed.
+		double wsum = ekfom_data.R_vec.sum();
+		if (wsum > 1e-9) ekfom_data.R_vec *= (double(effect_num_k) / wsum);
+	}
 	effct_feat_num += effect_num_k;
 }
 
@@ -345,6 +353,14 @@ void h_model_output(state_output &s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_
 
 			m++;
 		}
+	}
+	if (point_cov_en && effect_num_k > 0)
+	{
+		// normalize the per-point weights to unit mean within this update group, so the scheme
+		// only redistributes relative trust among points and preserves the (well-tuned) global
+		// measurement-noise budget laser_point_cov => nominal accuracy is not disturbed.
+		double wsum = ekfom_data.R_vec.sum();
+		if (wsum > 1e-9) ekfom_data.R_vec *= (double(effect_num_k) / wsum);
 	}
 	effct_feat_num += effect_num_k;
 }
