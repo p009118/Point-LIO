@@ -262,24 +262,32 @@ public:
 			// well-constrained eigen-subspace of the accumulated information matrix, so degenerate
 			// directions keep the kinematic/IMU prediction instead of being driven by weak LiDAR
 			// constraints. Both mean and covariance updates use the projected gain => consistent.
+			// The translation (rows 0-2) and rotation (rows 3-5) blocks are analysed SEPARATELY:
+			// the rotation Jacobian carries a lever-arm (point range), so its information is orders
+			// of magnitude larger than translation's; mixing them in one 6x6 ratio test would always
+			// flag translation as degenerate. Each block is compared against its own lambda_max.
 			if (degen_en_ && degen_count_ > degen_warmup_)
 			{
-				Eigen::SelfAdjointEigenSolver<Matrix<scalar_type, 6, 6> > es(degen_info_);
-				const Matrix<scalar_type, 6, 1> eval = es.eigenvalues();   // ascending order
-				const Matrix<scalar_type, 6, 6> evec = es.eigenvectors();
-				scalar_type lmax = eval(5);
-				if (lmax > scalar_type(1e-9))
+				for (int blk = 0; blk < 2; blk++) // 0: translation (rows 0-2), 1: rotation (rows 3-5)
 				{
-					Matrix<scalar_type, 6, 6> Pf = Matrix<scalar_type, 6, 6>::Zero();
-					for (int e = 0; e < 6; e++)
+					const int off = blk * 3;
+					Eigen::SelfAdjointEigenSolver<Matrix<scalar_type, 3, 3> > es(degen_info_.template block<3, 3>(off, off));
+					const Matrix<scalar_type, 3, 1> eval = es.eigenvalues();   // ascending order
+					const Matrix<scalar_type, 3, 3> evec = es.eigenvectors();
+					scalar_type lmax = eval(2);
+					if (lmax <= scalar_type(1e-9)) continue;
+					Matrix<scalar_type, 3, 3> Pf = Matrix<scalar_type, 3, 3>::Zero();
+					bool any_degen = false;
+					for (int e = 0; e < 3; e++)
 					{
-						if (eval(e) / lmax >= degen_ratio_thr_)
-						{
-							Pf += evec.col(e) * evec.col(e).transpose();
-						}
+						if (eval(e) / lmax >= degen_ratio_thr_) Pf += evec.col(e) * evec.col(e).transpose();
+						else any_degen = true;
 					}
-					Matrix<scalar_type, 6, Eigen::Dynamic> K_pose = Pf * K_.template topRows<6>();
-					K_.template topRows<6>() = K_pose;
+					if (any_degen)
+					{
+						Matrix<scalar_type, 3, Eigen::Dynamic> Kblk = Pf * K_.block(off, 0, 3, dof_Measurement);
+						K_.block(off, 0, 3, dof_Measurement) = Kblk;
+					}
 				}
 			}
 
