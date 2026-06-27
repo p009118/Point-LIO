@@ -258,14 +258,20 @@ public:
 				K_ = P_inv.template block<n, 12>(0, 0) * HT_Rinv;
 			}
 
-			// Degeneracy-aware gain suppression: project the pose rows of the Kalman gain onto the
-			// well-constrained eigen-subspace of the accumulated information matrix, so degenerate
-			// directions keep the kinematic/IMU prediction instead of being driven by weak LiDAR
-			// constraints. Both mean and covariance updates use the projected gain => consistent.
-			// The translation (rows 0-2) and rotation (rows 3-5) blocks are analysed SEPARATELY:
-			// the rotation Jacobian carries a lever-arm (point range), so its information is orders
-			// of magnitude larger than translation's; mixing them in one 6x6 ratio test would always
-			// flag translation as degenerate. Each block is compared against its own lambda_max.
+			// Degeneracy-aware gain attenuation: attenuate the pose rows of the Kalman gain along the
+			// weakly-observed eigen-directions of the accumulated LiDAR information matrix, so those
+			// directions gracefully fall back to the kinematic/IMU prediction. Both mean and
+			// covariance updates use the attenuated gain => consistent.
+			//
+			// Two design choices make this robust enough to be a no-op in well-constrained scenes:
+			//  1) Translation (rows 0-2) and rotation (rows 3-5) blocks are analysed SEPARATELY. The
+			//     rotation Jacobian carries a lever-arm (point range) and its information is orders of
+			//     magnitude larger; mixing the blocks would always flag translation as degenerate.
+			//  2) Each direction is compared against the block's MEDIAN eigenvalue (robust to a single
+			//     dominant direction, e.g. a strong ground plane pinning z), and the gain is scaled by
+			//     a SMOOTH factor g = lambda / (lambda + thr * median) in (0,1] rather than a hard 0/1
+			//     cut. A weak-but-real constraint keeps most of its gain; only a near-zero (truly
+			//     degenerate) direction is driven towards zero.
 			if (degen_en_ && degen_count_ > degen_warmup_)
 			{
 				for (int blk = 0; blk < 2; blk++) // 0: translation (rows 0-2), 1: rotation (rows 3-5)
@@ -274,20 +280,17 @@ public:
 					Eigen::SelfAdjointEigenSolver<Matrix<scalar_type, 3, 3> > es(degen_info_.template block<3, 3>(off, off));
 					const Matrix<scalar_type, 3, 1> eval = es.eigenvalues();   // ascending order
 					const Matrix<scalar_type, 3, 3> evec = es.eigenvectors();
-					scalar_type lmax = eval(2);
-					if (lmax <= scalar_type(1e-9)) continue;
-					Matrix<scalar_type, 3, 3> Pf = Matrix<scalar_type, 3, 3>::Zero();
-					bool any_degen = false;
+					scalar_type lref = eval(1); // median eigenvalue as the robust reference
+					if (lref <= scalar_type(1e-12)) continue;
+					scalar_type reg = degen_ratio_thr_ * lref;
+					Matrix<scalar_type, 3, 3> D = Matrix<scalar_type, 3, 3>::Zero();
 					for (int e = 0; e < 3; e++)
 					{
-						if (eval(e) / lmax >= degen_ratio_thr_) Pf += evec.col(e) * evec.col(e).transpose();
-						else any_degen = true;
+						scalar_type g = eval(e) / (eval(e) + reg); // smooth attenuation in (0,1]
+						D += g * evec.col(e) * evec.col(e).transpose();
 					}
-					if (any_degen)
-					{
-						Matrix<scalar_type, 3, Eigen::Dynamic> Kblk = Pf * K_.block(off, 0, 3, dof_Measurement);
-						K_.block(off, 0, 3, dof_Measurement) = Kblk;
-					}
+					Matrix<scalar_type, 3, Eigen::Dynamic> Kblk = D * K_.block(off, 0, 3, dof_Measurement);
+					K_.block(off, 0, 3, dof_Measurement) = Kblk;
 				}
 			}
 
