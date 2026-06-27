@@ -53,6 +53,8 @@ extern float  DET_RANGE;
 extern bool   imu_en;
 extern double imu_time_inte;
 extern double laser_point_cov, acc_norm;
+extern bool   point_cov_en;
+extern double point_cov_range_k, point_cov_inc_k, point_cov_omega_k, point_cov_wmin;
 extern double acc_cov_input, gyr_cov_input, vel_cov;
 extern double gyr_cov_output, acc_cov_output, b_gyr_cov, b_acc_cov;
 extern double imu_meas_acc_cov, imu_meas_omg_cov; 

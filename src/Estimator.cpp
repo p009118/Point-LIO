@@ -23,6 +23,30 @@ V3D Lidar_T_wrt_IMU(Zero3d);
 M3D Lidar_R_wrt_IMU(Eye3d);
 double G_m_s2 = 9.81;
 
+// Per-point relative confidence weight w_j in (point_cov_wmin, 1] for the point-to-plane
+// measurement. A larger inflation factor (far range, grazing incidence, or fast rotation)
+// yields a smaller w_j, i.e. that point is trusted less in the iterated update. Returning 1
+// reproduces the original single-scalar-noise behaviour, so the model stays self-consistent.
+//   p_body  : point in the LiDAR/body frame (ray origin at the sensor)
+//   norm_vec: unit plane normal in the world frame
+//   rot     : world-from-body rotation of the current state
+static inline double point_meas_weight(const V3D &p_body, const V3D &norm_vec, const SO3 &rot)
+{
+	double rho = p_body.norm();
+	// incidence angle between the LiDAR ray (p_body) and the surface normal expressed in body frame
+	V3D n_body = rot.transpose() * norm_vec;            // unit normal in body frame
+	double cos_inc = (rho > 1e-4) ? fabs(n_body.dot(p_body)) / rho : 1.0;
+	if (cos_inc < 0.1) cos_inc = 0.1;                   // clamp near-grazing to keep tan^2 bounded
+	double tan2 = 1.0 / (cos_inc * cos_inc) - 1.0;
+	double omg2 = angvel_avr.squaredNorm();             // motion-blur term, ties weight to Point-LIO's omega state
+	double infl = 1.0 + point_cov_range_k * rho * rho
+	                  + point_cov_inc_k   * tan2
+	                  + point_cov_omega_k * omg2;
+	double w = 1.0 / infl;
+	if (w < point_cov_wmin) w = point_cov_wmin;
+	return w;
+}
+
 Eigen::Matrix<double, 24, 24> process_noise_cov_input()
 {
 	Eigen::Matrix<double, 24, 24> cov;
@@ -179,15 +203,16 @@ void h_model_input(state_input &s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_R,
 	ekfom_data.h_x.resize(effect_num_k, 12);
 	ekfom_data.h_x = Eigen::MatrixXd::Zero(effect_num_k, 12);
 	ekfom_data.z.resize(effect_num_k);
+	if (point_cov_en) ekfom_data.R_vec.resize(effect_num_k);
 	int m = 0;
-	
+
 	for (int j = 0; j < time_seq[k]; j++)
 	{
 		// ekfom_data.converge = false;
 		if(point_selected_surf[idx+j+1])
 		{
 			V3D norm_vec(normvec->points[j].x, normvec->points[j].y, normvec->points[j].z);
-			
+
 			if (extrinsic_est_en)
 			{
 				V3D p_body = pbody_list[idx+j+1];
@@ -201,14 +226,15 @@ void h_model_input(state_input &s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_R,
 				ekfom_data.h_x.block<1, 12>(m, 0) << norm_vec(0), norm_vec(1), norm_vec(2), VEC_FROM_ARRAY(A), VEC_FROM_ARRAY(B), VEC_FROM_ARRAY(C);
 			}
 			else
-			{   
+			{
 				M3D point_crossmat = crossmat_list[idx+j+1];
 				V3D C(s.rot.transpose() * norm_vec); // conjugate().normalized()
 				V3D A(point_crossmat * C);
 				ekfom_data.h_x.block<1, 12>(m, 0) << norm_vec(0), norm_vec(1), norm_vec(2), VEC_FROM_ARRAY(A), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 			}
 			ekfom_data.z(m) = -norm_vec(0) * feats_down_world->points[idx+j+1].x -norm_vec(1) * feats_down_world->points[idx+j+1].y -norm_vec(2) * feats_down_world->points[idx+j+1].z-normvec->points[j].intensity;
-			
+			if (point_cov_en) ekfom_data.R_vec(m) = point_meas_weight(pbody_list[idx+j+1], norm_vec, s.rot);
+
 			m++;
 		}
 	}
@@ -287,6 +313,7 @@ void h_model_output(state_output &s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_
 	ekfom_data.h_x.resize(effect_num_k, 12);
 	ekfom_data.h_x = Eigen::MatrixXd::Zero(effect_num_k, 12);
 	ekfom_data.z.resize(effect_num_k);
+	if (point_cov_en) ekfom_data.R_vec.resize(effect_num_k);
 	int m = 0;
 	for (int j = 0; j < time_seq[k]; j++)
 	{
@@ -307,14 +334,15 @@ void h_model_output(state_output &s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_
 				ekfom_data.h_x.block<1, 12>(m, 0) << norm_vec(0), norm_vec(1), norm_vec(2), VEC_FROM_ARRAY(A), VEC_FROM_ARRAY(B), VEC_FROM_ARRAY(C);
 			}
 			else
-			{   
+			{
 				M3D point_crossmat = crossmat_list[idx+j+1];
 				V3D C(s.rot.transpose() * norm_vec); // conjugate().normalized()
 				V3D A(point_crossmat * C);
 				ekfom_data.h_x.block<1, 12>(m, 0) << norm_vec(0), norm_vec(1), norm_vec(2), VEC_FROM_ARRAY(A), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 			}
 			ekfom_data.z(m) = -norm_vec(0) * feats_down_world->points[idx+j+1].x -norm_vec(1) * feats_down_world->points[idx+j+1].y -norm_vec(2) * feats_down_world->points[idx+j+1].z-normvec->points[j].intensity;
-			
+			if (point_cov_en) ekfom_data.R_vec(m) = point_meas_weight(pbody_list[idx+j+1], norm_vec, s.rot);
+
 			m++;
 		}
 	}

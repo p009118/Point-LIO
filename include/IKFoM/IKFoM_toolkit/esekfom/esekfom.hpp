@@ -64,6 +64,7 @@ struct dyn_share_modified
 	bool valid;
 	bool converge;
 	T M_Noise;
+	Eigen::Matrix<T, Eigen::Dynamic, 1> R_vec; // per-point relative confidence weight w_j in (0,1]; empty => fall back to scalar M_Noise
 	Eigen::Matrix<T, Eigen::Dynamic, 1> z;
 	Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> h_x;
 	Eigen::Matrix<T, 6, 1> z_IMU;
@@ -201,6 +202,10 @@ public:
 			// Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> h_v = dyn_share.h_v;
 			dof_Measurement = h_x.rows();
 			m_noise = dyn_share.M_Noise;
+			// per-point relative confidence weight w_j (in (0,1]); when sized to the measurements
+			// it modulates each point's influence. w_j == 1 reproduces the scalar-noise behaviour exactly.
+			Matrix<scalar_type, Eigen::Dynamic, 1> w_vec = dyn_share.R_vec;
+			bool use_w = (w_vec.size() == dof_Measurement);
 			// dof_Measurement_noise = dyn_share.R.rows();
 			// vectorized_state dx, dx_new;
 			// x_.boxminus(dx, x_propagated);
@@ -216,17 +221,29 @@ public:
 				HPHT = h_x * PHT.topRows(12);
 				for (int m = 0; m < dof_Measurement; m++)
 				{
-					HPHT(m, m) += m_noise;
+					// inflate the variance of less-trustworthy points: R_j = m_noise / w_j
+					HPHT(m, m) += use_w ? (m_noise / w_vec(m)) : m_noise;
 				}
 				K_= PHT*HPHT.inverse();
 			}
 			else
 			{
-				Matrix<scalar_type, 12, 12> HTH = m_noise * h_x.transpose() * h_x;
+				// information form: H^T R^{-1} H, with per-point information scaled by w_j
+				Matrix<scalar_type, 12, 12> HTH;
+				Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> HT_Rinv; // 12 x dof_Measurement
+				if (use_w)
+				{
+					HT_Rinv = m_noise * h_x.transpose() * w_vec.asDiagonal();
+				}
+				else
+				{
+					HT_Rinv = m_noise * h_x.transpose();
+				}
+				HTH = HT_Rinv * h_x;
 				Matrix<scalar_type, n, n> P_inv = P_.inverse();
 				P_inv.template block<12, 12>(0, 0) += HTH;
 				P_inv = P_inv.inverse();
-				K_ = P_inv.template block<n, 12>(0, 0) * h_x.transpose() * m_noise;
+				K_ = P_inv.template block<n, 12>(0, 0) * HT_Rinv;
 			}
 			Matrix<scalar_type, n, 1> dx_ = K_ * z; // - h) + (K_x - Matrix<scalar_type, n, n>::Identity()) * dx_new; 
 			// state x_before = x_;
