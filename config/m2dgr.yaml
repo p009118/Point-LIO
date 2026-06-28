@@ -1,0 +1,62 @@
+common:
+    lid_topic:  "/velodyne_points"
+    imu_topic:  "/handsfree/imu"       # M2DGR Handsfree A9 IMU, 150 Hz
+    con_frame: false # true: if you need to combine several LiDAR frames into one
+    con_frame_num: 1 # the number of frames combined
+    cut_frame: false # true: if you need to cut one LiDAR frame into several subframes
+    cut_frame_time_interval: 0.1 # should be integral fraction of 1 / LiDAR frequency
+    time_diff_lidar_to_imu: 0.0 # Time offset between LiDAR and IMU calibrated by other algorithms, e.g., LI-Init (find in Readme)
+
+preprocess:
+    lidar_type: 2               # 2 = velodyne handler (VLP-32C)
+    scan_line: 32
+    timestamp_unit: 0           # velodyne 'time' field is relative seconds (falls back to yaw reconstruction if absent)
+    blind: 1.0
+
+mapping:
+    imu_en: true
+    extrinsic_est_en: false # M2DGR provides the LiDAR<->IMU calibration below, keep it fixed
+    imu_time_inte: 0.006667 # = 1 / 150 Hz
+    lidar_time_inte: 0.1
+    satu_acc: 30.0
+    satu_gyro: 35
+    acc_norm: 9.81 # /handsfree/imu accelerations are in m/s^2 (verify: echo should read ~9.8 at rest)
+    lidar_meas_cov: 0.01 # 0.001
+    point_cov_en: false      # true: enable per-point anisotropic measurement weighting (paper feature B). false reproduces the baseline exactly.
+    point_cov_range_k: 0.001 # weight inflation per range^2 (m^-2)
+    point_cov_inc_k: 0.2     # weight inflation per tan^2(incidence angle)
+    point_cov_omega_k: 0.001 # weight inflation per ||omega||^2 (rad/s)^-2, ties confidence to fast rotation
+    point_cov_wmin: 0.05     # lower clamp on the per-point weight
+    degeneracy_en: false       # true: enable degeneracy-aware gain suppression (paper feature A). false = baseline.
+    degeneracy_ratio_thr: 0.02 # soft attenuation strength: g=lambda/(lambda+thr*median_eig). larger=>more suppression; ~0 acts as no-op.
+    degeneracy_decay: 0.95     # exponential decay of the accumulated pose information matrix
+    degeneracy_warmup: 50      # number of updates to accumulate before suppression is allowed
+    acc_cov_output: 500
+    gyr_cov_output: 1000
+    b_acc_cov: 0.0001
+    b_gyr_cov: 0.0001
+    imu_meas_acc_cov: 0.1
+    imu_meas_omg_cov: 0.1
+    gyr_cov_input: 0.01 # for IMU as input model
+    acc_cov_input: 0.1 # for IMU as input model
+    plane_thr: 0.1 # 0.05, the threshold for plane criteria, the smaller, the flatter a plane
+    match_s: 81
+    ivox_grid_resolution: 0.5  # indoor: finer map
+    gravity: [0.0, 0.0, -9.810]
+    gravity_init: [0.0, 0.0, -9.810]
+    extrinsic_T: [0.27255, -0.00053, 0.17954]  # M2DGR LiDAR-in-IMU translation (from dataset calibration)
+    extrinsic_R: [ 1, 0, 0,
+                   0, 1, 0,
+                   0, 0, 1 ]
+odometry:
+    publish_odometry_without_downsample: false
+
+publish:
+    path_en: true                 # false: close the path output
+    scan_publish_en: true         # false: close all the point cloud output
+    scan_bodyframe_pub_en: false  # true: output the point cloud scans in IMU-body-frame
+
+pcd_save:
+    pcd_save_en: false
+    interval: -1                 # how many LiDAR frames saved in each pcd file;
+                                 # -1 : all frames will be saved in ONE pcd file, may lead to memory crash when having too much frames.
