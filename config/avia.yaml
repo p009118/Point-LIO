@@ -27,6 +27,8 @@ mapping:
     point_cov_inc_k: 0.2     # weight inflation per tan^2(incidence angle)
     point_cov_omega_k: 0.001 # weight inflation per ||omega||^2 (rad/s)^-2, ties confidence to fast rotation
     point_cov_wmin: 0.05     # lower clamp on the per-point weight
+    point_cov_robust_en: false   # true: add a Huber robust kernel on the point-to-plane residual (down-weights outliers / dynamic points)
+    point_cov_robust_delta: 0.1  # residual (m) beyond which a point is treated as an outlier and down-weighted
     degeneracy_en: false       # true: enable degeneracy-aware gain suppression (paper feature A). false = baseline.
     degeneracy_ratio_thr: 0.02 # soft attenuation strength: g=lambda/(lambda+thr*median_eig). larger=>more suppression; ~0 acts as no-op.
     degeneracy_decay: 0.95     # exponential decay of the accumulated pose information matrix
