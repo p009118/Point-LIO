@@ -233,7 +233,19 @@ void h_model_input(state_input &s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_R,
 				ekfom_data.h_x.block<1, 12>(m, 0) << norm_vec(0), norm_vec(1), norm_vec(2), VEC_FROM_ARRAY(A), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 			}
 			ekfom_data.z(m) = -norm_vec(0) * feats_down_world->points[idx+j+1].x -norm_vec(1) * feats_down_world->points[idx+j+1].y -norm_vec(2) * feats_down_world->points[idx+j+1].z-normvec->points[j].intensity;
-			if (point_cov_en) ekfom_data.R_vec(m) = point_meas_weight(pbody_list[idx+j+1], norm_vec, s.rot);
+			if (point_cov_en)
+			{
+				double w_pt = point_meas_weight(pbody_list[idx+j+1], norm_vec, s.rot);
+				if (point_cov_robust_en)
+				{
+					// Huber-style robust kernel on the point-to-plane residual: down-weight outliers /
+					// moving-object returns whose residual exceeds delta, so they cannot pull the update.
+					double r_abs = fabs(ekfom_data.z(m));
+					if (r_abs > point_cov_robust_delta) w_pt *= point_cov_robust_delta / r_abs;
+					if (w_pt < 1e-3) w_pt = 1e-3;
+				}
+				ekfom_data.R_vec(m) = w_pt;
+			}
 
 			m++;
 		}
@@ -349,7 +361,19 @@ void h_model_output(state_output &s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_
 				ekfom_data.h_x.block<1, 12>(m, 0) << norm_vec(0), norm_vec(1), norm_vec(2), VEC_FROM_ARRAY(A), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 			}
 			ekfom_data.z(m) = -norm_vec(0) * feats_down_world->points[idx+j+1].x -norm_vec(1) * feats_down_world->points[idx+j+1].y -norm_vec(2) * feats_down_world->points[idx+j+1].z-normvec->points[j].intensity;
-			if (point_cov_en) ekfom_data.R_vec(m) = point_meas_weight(pbody_list[idx+j+1], norm_vec, s.rot);
+			if (point_cov_en)
+			{
+				double w_pt = point_meas_weight(pbody_list[idx+j+1], norm_vec, s.rot);
+				if (point_cov_robust_en)
+				{
+					// Huber-style robust kernel on the point-to-plane residual: down-weight outliers /
+					// moving-object returns whose residual exceeds delta, so they cannot pull the update.
+					double r_abs = fabs(ekfom_data.z(m));
+					if (r_abs > point_cov_robust_delta) w_pt *= point_cov_robust_delta / r_abs;
+					if (w_pt < 1e-3) w_pt = 1e-3;
+				}
+				ekfom_data.R_vec(m) = w_pt;
+			}
 
 			m++;
 		}
