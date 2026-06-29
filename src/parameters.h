@@ -57,6 +57,7 @@ extern bool   point_cov_en;
 extern double point_cov_range_k, point_cov_inc_k, point_cov_omega_k, point_cov_wmin;
 extern bool   point_cov_robust_en;
 extern double point_cov_robust_delta;
+extern bool   point_cov_norm_global;
 extern bool   degeneracy_en;
 extern double degeneracy_ratio_thr, degeneracy_decay;
 extern int    degeneracy_warmup;

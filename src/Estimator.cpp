@@ -22,6 +22,9 @@ int feats_down_size = 0;
 V3D Lidar_T_wrt_IMU(Zero3d);
 M3D Lidar_R_wrt_IMU(Eye3d);
 double G_m_s2 = 9.81;
+// running mean of the raw per-point weights, used by the optional global (sliding-window)
+// normalization so B can discriminate point quality across the whole scan, not just per group.
+static double g_point_w_ref = 1.0;
 
 // Per-point relative confidence weight w_j in (point_cov_wmin, 1] for the point-to-plane
 // measurement. A larger inflation factor (far range, grazing incidence, or fast rotation)
@@ -252,11 +255,24 @@ void h_model_input(state_input &s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_R,
 	}
 	if (point_cov_en && effect_num_k > 0)
 	{
-		// normalize the per-point weights to unit mean within this update group, so the scheme
-		// only redistributes relative trust among points and preserves the (well-tuned) global
-		// measurement-noise budget laser_point_cov => nominal accuracy is not disturbed.
 		double wsum = ekfom_data.R_vec.sum();
-		if (wsum > 1e-9) ekfom_data.R_vec *= (double(effect_num_k) / wsum);
+		if (point_cov_norm_global)
+		{
+			// GLOBAL (sliding-window) normalization: scale the weights by a running mean of the raw
+			// weights across recent updates, so a far / grazing group is down-weighted relative to a
+			// near / normal group across the whole scan (a per-group mean cannot see this because the
+			// points in one same-timestamp group share almost the same geometry). The average trust
+			// stays ~unchanged, so the global noise budget is roughly preserved.
+			double wmean = wsum / double(effect_num_k);
+			g_point_w_ref = 0.99 * g_point_w_ref + 0.01 * wmean;        // EMA of the raw weight mean
+			if (g_point_w_ref > 1e-9) ekfom_data.R_vec /= g_point_w_ref;
+		}
+		else if (wsum > 1e-9)
+		{
+			// PER-GROUP normalization (original B): unit mean within this update group. Pure
+			// redistribution, preserves the global noise budget exactly. norm_global=false => original.
+			ekfom_data.R_vec *= (double(effect_num_k) / wsum);
+		}
 	}
 	effct_feat_num += effect_num_k;
 }
@@ -380,11 +396,24 @@ void h_model_output(state_output &s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_
 	}
 	if (point_cov_en && effect_num_k > 0)
 	{
-		// normalize the per-point weights to unit mean within this update group, so the scheme
-		// only redistributes relative trust among points and preserves the (well-tuned) global
-		// measurement-noise budget laser_point_cov => nominal accuracy is not disturbed.
 		double wsum = ekfom_data.R_vec.sum();
-		if (wsum > 1e-9) ekfom_data.R_vec *= (double(effect_num_k) / wsum);
+		if (point_cov_norm_global)
+		{
+			// GLOBAL (sliding-window) normalization: scale the weights by a running mean of the raw
+			// weights across recent updates, so a far / grazing group is down-weighted relative to a
+			// near / normal group across the whole scan (a per-group mean cannot see this because the
+			// points in one same-timestamp group share almost the same geometry). The average trust
+			// stays ~unchanged, so the global noise budget is roughly preserved.
+			double wmean = wsum / double(effect_num_k);
+			g_point_w_ref = 0.99 * g_point_w_ref + 0.01 * wmean;        // EMA of the raw weight mean
+			if (g_point_w_ref > 1e-9) ekfom_data.R_vec /= g_point_w_ref;
+		}
+		else if (wsum > 1e-9)
+		{
+			// PER-GROUP normalization (original B): unit mean within this update group. Pure
+			// redistribution, preserves the global noise budget exactly. norm_global=false => original.
+			ekfom_data.R_vec *= (double(effect_num_k) / wsum);
+		}
 	}
 	effct_feat_num += effect_num_k;
 }

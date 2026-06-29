@@ -27,6 +27,7 @@ bool   point_cov_en = false;
 double point_cov_range_k = 1e-3, point_cov_inc_k = 0.2, point_cov_omega_k = 1e-3, point_cov_wmin = 0.05;
 bool   point_cov_robust_en = false;
 double point_cov_robust_delta = 0.1;
+bool   point_cov_norm_global = false;
 bool   degeneracy_en = false;
 double degeneracy_ratio_thr = 0.02, degeneracy_decay = 0.95;
 int    degeneracy_warmup = 50;
@@ -88,6 +89,7 @@ void readParameters(ros::NodeHandle &nh)
   nh.param<double>("mapping/point_cov_wmin", point_cov_wmin, 0.05);
   nh.param<bool>("mapping/point_cov_robust_en", point_cov_robust_en, false);
   nh.param<double>("mapping/point_cov_robust_delta", point_cov_robust_delta, 0.1);
+  nh.param<bool>("mapping/point_cov_norm_global", point_cov_norm_global, false);
   nh.param<bool>("mapping/degeneracy_en", degeneracy_en, false);
   nh.param<double>("mapping/degeneracy_ratio_thr", degeneracy_ratio_thr, 0.02);
   nh.param<double>("mapping/degeneracy_decay", degeneracy_decay, 0.95);
