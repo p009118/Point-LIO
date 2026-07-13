@@ -243,13 +243,14 @@ public:
 				// information form: H^T R^{-1} H, with per-point information scaled by w_j
 				Matrix<scalar_type, 12, 12> HTH;
 				Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> HT_Rinv; // 12 x dof_Measurement
+				scalar_type inv_noise = (m_noise > scalar_type(1e-12)) ? scalar_type(1) / m_noise : scalar_type(1e12);
 				if (use_w)
 				{
-					HT_Rinv = m_noise * h_x.transpose() * w_vec.asDiagonal();
+					HT_Rinv = inv_noise * h_x.transpose() * w_vec.asDiagonal();
 				}
 				else
 				{
-					HT_Rinv = m_noise * h_x.transpose();
+					HT_Rinv = inv_noise * h_x.transpose();
 				}
 				HTH = HT_Rinv * h_x;
 				Matrix<scalar_type, n, n> P_inv = P_.inverse();
